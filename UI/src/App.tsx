@@ -205,7 +205,7 @@ function SetupView({ config, setConfig, onStart, historyCount, backendStatus, on
     setLoadingQuestions(true);
     setErrorMessage(null);
     try {
-      const res = await fetch("/api/generate-questions", {
+      const res = await fetch(`${API_BASE_URL}/api/generate-questions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
