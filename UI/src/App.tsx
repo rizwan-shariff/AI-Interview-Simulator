@@ -35,6 +35,8 @@ import {
 } from "lucide-react";
 import { InterviewConfig, Question, Evaluation, InterviewRound, Session } from "./types";
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+
 // Preset Job Descriptions for quick loading
 const PRESET_JDS = [
   {
@@ -602,7 +604,7 @@ function LiveView({ session, setSession, onEndSession, onAbort }: LiveViewProps)
     const fetchQuestions = async () => {
       setLoadingQuestions(true);
       try {
-        const res = await fetch("/api/generate-questions", {
+        const res = await fetch(`${API_BASE_URL}/api/generate-questions`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -810,7 +812,7 @@ function LiveView({ session, setSession, onEndSession, onAbort }: LiveViewProps)
 
     try {
       // Evaluate current answer dynamically via server-side Gemini
-      const res = await fetch("/api/evaluate-answer", {
+      const res = await fetch(`${API_BASE_URL}/api/evaluate-answer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -880,7 +882,7 @@ function LiveView({ session, setSession, onEndSession, onAbort }: LiveViewProps)
 
     try {
       // 1. Get summary
-      const res = await fetch("/api/generate-summary", {
+      const res = await fetch(`${API_BASE_URL}/api/generate-summary`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -902,7 +904,7 @@ function LiveView({ session, setSession, onEndSession, onAbort }: LiveViewProps)
         });
         
         try {
-          const visionRes = await fetch("/api/evaluate-body-language", {
+          const visionRes = await fetch(`${API_BASE_URL}/api/evaluate-body-language`, {
             method: "POST",
             body: formData,
           });
