@@ -1,0 +1,6 @@
+{
+  "name": "AURA AI",
+  "description": "Interactive cinematic AI-powered mock interview simulator with real-time feedback, detailed performance dashboards, and key takeaways.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
