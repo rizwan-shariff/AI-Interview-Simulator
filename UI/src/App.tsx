@@ -83,7 +83,7 @@ export default function App() {
     }
 
     // Fetch backend configuration status
-    fetch("/api/status")
+    fetch(`${API_BASE_URL}/api/status`)
       .then((res) => res.json())
       .then((data) => {
         setBackendStatus({

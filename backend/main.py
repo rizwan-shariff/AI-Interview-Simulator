@@ -45,6 +45,11 @@ class GenerateSummaryRequest(BaseModel):
 def read_root():
     return {"message": "AI Interview Simulator Backend is Running!"}
 
+@app.get("/api/status")
+def api_status():
+    has_groq = os.getenv("GROQ_API_KEY") is not None
+    return {"hasGeminiKey": has_groq, "mode": "production"}
+
 @app.post("/api/generate-questions")
 async def api_generate_questions(req: GenerateQuestionsRequest):
     groq_api_key = os.getenv("GROQ_API_KEY")
