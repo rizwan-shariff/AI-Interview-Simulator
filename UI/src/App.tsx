@@ -35,7 +35,7 @@ import {
 } from "lucide-react";
 import { InterviewConfig, Question, Evaluation, InterviewRound, Session } from "./types";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "https://ai-interview-simulator-1-rslz.onrender.com";
 
 // Preset Job Descriptions for quick loading
 const PRESET_JDS = [
