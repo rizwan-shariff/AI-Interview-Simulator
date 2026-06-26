@@ -2,8 +2,6 @@ fastapi
 uvicorn
 python-multipart
 groq
-pandas
-altair
 python-dotenv
 duckduckgo-search
 pillow
