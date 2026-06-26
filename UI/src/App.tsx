@@ -240,7 +240,7 @@ function SetupView({ config, setConfig, onStart, historyCount, backendStatus, on
       {/* Top Banner Header */}
       <header className="w-full flex justify-between items-center px-6 md:px-12 h-20 bg-[#050505]/40 backdrop-blur-3xl border-b border-white/10 shadow-[0_0_20px_rgba(173,198,255,0.05)]">
         <div className="flex items-center gap-3">
-          <span className="font-display text-2xl font-bold tracking-tight text-primary">AURA AI</span>
+          <span className="font-display text-2xl font-bold tracking-tight text-primary">Interview Simulator</span>
         </div>
         <div className="flex items-center gap-4">
           {historyCount > 0 && (
@@ -272,11 +272,11 @@ function SetupView({ config, setConfig, onStart, historyCount, backendStatus, on
             </div>
             
             <h1 className="font-display text-4xl md:text-5xl font-extrabold tracking-tight text-white leading-tight">
-              Master the technical interview with <span className="text-primary glow-text">Aura Core</span>
+              Master the technical interview with <span className="text-primary glow-text">Interview Simulator</span>
             </h1>
             
             <p className="text-on-surface-variant text-base leading-relaxed opacity-90">
-              Aura is a high-fidelity interactive mock interviewer that speaks, listens, and delivers professional insights in a cinematic cockpit design. Build confidence with customizable job roles, live answer tracking, and detailed performance scorecards.
+              Interview Simulator is a high-fidelity interactive mock interviewer that speaks, listens, and delivers professional insights in a cinematic cockpit design. Build confidence with customizable job roles, live answer tracking, and detailed performance scorecards.
             </p>
 
             <div className="space-y-4 pt-2">
