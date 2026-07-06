@@ -44,4 +44,7 @@ export interface Session {
   durationSeconds: number;
   bodyLanguageScore?: number;
   bodyLanguageFeedback?: string;
+  cheatEvidence?: string; // Legacy fallback
+  cheatReason?: string; // Legacy fallback
+  violations?: { reason: string; evidence?: string; timestamp: string }[];
 }

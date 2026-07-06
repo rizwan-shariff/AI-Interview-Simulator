@@ -32,6 +32,7 @@ import {
   Info,
   Loader2,
   Trash2,
+  Camera,
 } from "lucide-react";
 
 import * as tf from "@tensorflow/tfjs";
@@ -57,6 +58,8 @@ const PRESET_JDS = [
     text: "Looking for a Backend Engineering Lead to drive development of scalable microservices, relational PostgreSQL architectures, and fault-tolerant APIs. You will manage database connection pooling, optimize complex SQL schema migrations, and secure cross-platform data syncing workflows with zero system downtime.",
   },
 ];
+
+let cachedCocoModel: cocoSsd.ObjectDetection | null = null;
 
 export default function App() {
   const [view, setView] = useState<"setup" | "live" | "dashboard" | "history">("setup");
@@ -495,10 +498,17 @@ function LiveView({ session, setSession, onEndSession, onAbort }: LiveViewProps)
 
   // Initialize camera stream
   useEffect(() => {
+    let isMounted = true;
     let activeStream: MediaStream | null = null;
+    
     async function startCamera() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        if (!isMounted) {
+          // Prevent orphaned streams in React Strict Mode if component unmounted while awaiting permission
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
         activeStream = stream;
         setCameraStream(stream);
         if (videoRef.current) {
@@ -506,12 +516,13 @@ function LiveView({ session, setSession, onEndSession, onAbort }: LiveViewProps)
         }
       } catch (err: any) {
         console.warn("Camera access denied or unavailable:", err);
-        setCameraError(err.message || "No camera found");
+        if (isMounted) setCameraError(err.message || "No camera found");
       }
     }
     startCamera();
 
     return () => {
+      isMounted = false;
       if (activeStream) {
         activeStream.getTracks().forEach((track) => track.stop());
       }
@@ -592,10 +603,16 @@ function LiveView({ session, setSession, onEndSession, onAbort }: LiveViewProps)
   const [questions, setQuestions] = useState<Question[]>([]);
   const [loadingQuestions, setLoadingQuestions] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const hasSpokenRoundRef = useRef(-1);
   
   // Anti-Cheat State
-  const [violationCount, setViolationCount] = useState(0);
-  const [showCheatWarning, setShowCheatWarning] = useState(false);
+  const violationCountRef = useRef(0);
+  const lastViolationTimeRef = useRef(0);
+  const cheatWarningDataRef = useRef<{ title: string; message: string } | null>(null);
+  const [cheatWarningData, setCheatWarningData] = useState<{ title: string; message: string } | null>(null);
+  const cheatEvidenceRef = useRef<string | null>(null);
+  const cheatReasonRef = useRef<string | null>(null);
+  const violationsListRef = useRef<{ reason: string; evidence?: string; timestamp: string }[]>([]);
   
   // Timer State
   const [seconds, setSeconds] = useState(0);
@@ -612,8 +629,9 @@ function LiveView({ session, setSession, onEndSession, onAbort }: LiveViewProps)
   const [voiceVolume, setVoiceVolume] = useState<number[]>(Array(10).fill(5));
   const [isMuted, setIsMuted] = useState(false);
   const [isTtsEnabled, setIsTtsEnabled] = useState(true);
+  const [showSecurityBriefing, setShowSecurityBriefing] = useState(true);
 
-  const ttsUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Load / Generate Questions
@@ -689,11 +707,15 @@ function LiveView({ session, setSession, onEndSession, onAbort }: LiveViewProps)
 
   // Voice output triggered on new questions
   useEffect(() => {
-    if (loadingQuestions || questions.length === 0 || currentRoundIndex >= questions.length) return;
+    if (loadingQuestions || showSecurityBriefing || questions.length === 0 || currentRoundIndex >= questions.length) return;
     
-    const currentQuestion = questions[currentRoundIndex];
-    triggerAISpeech(currentQuestion.text);
-  }, [loadingQuestions, currentRoundIndex, questions]);
+    if (hasSpokenRoundRef.current !== currentRoundIndex) {
+      hasSpokenRoundRef.current = currentRoundIndex;
+      const currentQuestion = questions[currentRoundIndex];
+      // small timeout to prevent strict mode race conditions with window.speechSynthesis
+      setTimeout(() => triggerAISpeech(currentQuestion.text), 50);
+    }
+  }, [loadingQuestions, showSecurityBriefing, currentRoundIndex, questions]);
 
   // Simulate Soundwaves when recording
   useEffect(() => {
@@ -708,44 +730,145 @@ function LiveView({ session, setSession, onEndSession, onAbort }: LiveViewProps)
     return () => clearInterval(interval);
   }, [isRecording]);
 
-  const triggerAISpeech = (text: string) => {
+  const triggerAISpeech = async (text: string) => {
     if (!isTtsEnabled) {
       setIsAITalking(false);
       simulateSubtitleEffect(text);
       return;
     }
 
-    if (window.speechSynthesis) {
-      window.speechSynthesis.cancel(); // cancel current speech
-      
-      const utterance = new SpeechSynthesisUtterance(text);
-      
-      // Try to find a nice male/English manager sounding voice if possible
-      const voices = window.speechSynthesis.getVoices();
-      const idealVoice = voices.find(v => v.lang.startsWith("en") && (v.name.includes("Google") || v.name.includes("Natural")));
-      if (idealVoice) {
-        utterance.voice = idealVoice;
-      }
-      
-      utterance.rate = 1.0;
-      utterance.pitch = 0.95; // slightly lower pitch for managerial tone
-
-      utterance.onstart = () => {
-        setIsAITalking(true);
-      };
-
-      utterance.onend = () => {
-        setIsAITalking(false);
-      };
-
-      utterance.onerror = () => {
-        setIsAITalking(false);
-      };
-
-      ttsUtteranceRef.current = utterance;
-      window.speechSynthesis.speak(utterance);
-    }
     simulateSubtitleEffect(text);
+    const apiKey = import.meta.env.VITE_ELEVENLABS_API_KEY;
+
+    const playNativeFemaleVoice = (textToSpeak: string) => {
+      if (!window.speechSynthesis) return;
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(textToSpeak);
+      const voices = window.speechSynthesis.getVoices();
+      const femaleVoice = voices.find(v => 
+        v.lang.startsWith("en") && 
+        (v.name.includes("Female") || v.name.includes("Samantha") || v.name.includes("Victoria") || v.name.includes("Zira") || v.name.includes("Karen") || v.name.includes("Moira"))
+      ) || voices.find(v => v.lang.startsWith("en")); // fallback to any English voice
+      if (femaleVoice) utterance.voice = femaleVoice;
+      utterance.rate = 0.95;
+      utterance.pitch = 1.1; // force higher pitch for female approximation
+      utterance.onstart = () => setIsAITalking(true);
+      utterance.onend = () => setIsAITalking(false);
+      utterance.onerror = () => setIsAITalking(false);
+      window.speechSynthesis.speak(utterance);
+    };
+
+    if (!apiKey) {
+      console.warn("No ElevenLabs API key found. Falling back to native TTS.");
+      playNativeFemaleVoice(text);
+      return;
+    }
+
+    try {
+      if (currentAudioRef.current) {
+        currentAudioRef.current.pause();
+      }
+
+      setIsAITalking(true);
+      const voiceId = "EXAVITQu4vr4xnSDxMaL"; // Bella
+      const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "xi-api-key": apiKey
+        },
+        body: JSON.stringify({
+          text: text,
+          model_id: "eleven_turbo_v2_5", // Use turbo to prevent hallucination/mismatch
+          voice_settings: { stability: 0.25, similarity_boost: 0.95, style: 0.5 }
+        })
+      });
+      
+      if (!res.ok) throw new Error("ElevenLabs API failed");
+      
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      currentAudioRef.current = audio;
+      
+      audio.onended = () => { setIsAITalking(false); URL.revokeObjectURL(url); };
+      audio.onerror = () => { setIsAITalking(false); URL.revokeObjectURL(url); };
+      
+      audio.play().catch(e => {
+        console.warn("Audio auto-play failed", e);
+        playNativeFemaleVoice(text);
+      });
+    } catch (e) {
+      console.warn("ElevenLabs TTS error:", e);
+      playNativeFemaleVoice(text);
+    }
+  };
+
+  const triggerWarningSpeech = async (message: string) => {
+    if (!isTtsEnabled) return;
+    
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause();
+    }
+    if (window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+    
+    const warningText = message + ". Warning: One more violation will automatically submit and terminate your interview session.";
+    const apiKey = import.meta.env.VITE_ELEVENLABS_API_KEY;
+
+    const playNativeFemaleWarning = (textToSpeak: string) => {
+      if (!window.speechSynthesis) return;
+      const utterance = new SpeechSynthesisUtterance(textToSpeak);
+      const voices = window.speechSynthesis.getVoices();
+      const femaleVoice = voices.find(v => 
+        v.lang.startsWith("en") && 
+        (v.name.includes("Female") || v.name.includes("Samantha") || v.name.includes("Victoria") || v.name.includes("Zira") || v.name.includes("Karen") || v.name.includes("Moira"))
+      ) || voices.find(v => v.lang.startsWith("en"));
+      if (femaleVoice) utterance.voice = femaleVoice;
+      utterance.rate = 0.95;
+      utterance.pitch = 1.1;
+      utterance.onstart = () => setIsAITalking(true);
+      utterance.onend = () => setIsAITalking(false);
+      utterance.onerror = () => setIsAITalking(false);
+      window.speechSynthesis.speak(utterance);
+    };
+
+    if (!apiKey) {
+      playNativeFemaleWarning(warningText);
+      return;
+    }
+
+    try {
+      setIsAITalking(true);
+      const voiceId = "EXAVITQu4vr4xnSDxMaL"; // Bella
+      const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "xi-api-key": apiKey
+        },
+        body: JSON.stringify({
+          text: warningText,
+          model_id: "eleven_turbo_v2_5",
+          voice_settings: { stability: 0.25, similarity_boost: 0.95, style: 0.5 }
+        })
+      });
+      
+      if (!res.ok) throw new Error("ElevenLabs API failed");
+      
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      currentAudioRef.current = audio;
+      
+      audio.onended = () => { setIsAITalking(false); URL.revokeObjectURL(url); };
+      audio.onerror = () => { setIsAITalking(false); URL.revokeObjectURL(url); };
+      audio.play().catch(e => { playNativeFemaleWarning(warningText); });
+    } catch (e) {
+      console.warn("ElevenLabs TTS warning error:", e);
+      playNativeFemaleWarning(warningText);
+    }
   };
 
   const simulateSubtitleEffect = (text: string) => {
@@ -909,6 +1032,38 @@ function LiveView({ session, setSession, onEndSession, onAbort }: LiveViewProps)
       return round;
     });
 
+    const hasAnyRealAnswers = finalRounds.some(r => r.answerText !== "Skipped / No response recorded.");
+    
+    if (!hasAnyRealAnswers) {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+      }
+      // Force skip to fallback immediately to prevent infinite API stall
+      const finishedSession: Session = {
+        ...session,
+        rounds: finalRounds,
+        completed: true,
+        durationSeconds: seconds,
+        overallScore: cheatReasonRef.current ? 0 : 82,
+        keyTakeaways: {
+          strengths: ["Clear structure used during the architectural trade-offs questions.", "Maintained professional posture and solid active listening characteristics."],
+          opportunities: ["Deepen discussion around automated test architectures and specific metrics.", "Utilize STAR methodology metrics on all communication scenarios."],
+        },
+        trajectory: [75, 82, 80, 88],
+        bodyLanguageScore: 85,
+        bodyLanguageFeedback: "Good eye contact, but try to remain more centered in the frame.",
+        cheatEvidence: cheatEvidenceRef.current || undefined,
+        cheatReason: cheatReasonRef.current || undefined
+      };
+      onEndSession(finishedSession);
+      setSubmittingAnswer(false);
+      setIsFinishingSession(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000); // 12s hard timeout
+
     try {
       // 1. Get summary
       const res = await fetch(`${API_BASE_URL}/api/generate-summary`, {
@@ -919,7 +1074,9 @@ function LiveView({ session, setSession, onEndSession, onAbort }: LiveViewProps)
           jobDescription: session.config.jobDescription,
           experienceLevel: session.config.experienceLevel,
         }),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
       const data = await res.json();
       
       // 2. Evaluate Body Language (Vision API)
@@ -952,14 +1109,17 @@ function LiveView({ session, setSession, onEndSession, onAbort }: LiveViewProps)
         rounds: finalRounds,
         completed: true,
         durationSeconds: seconds,
-        overallScore: data.summary?.overallScore || 82,
+        overallScore: cheatReasonRef.current ? 0 : (data.summary?.overallScore || 82),
         keyTakeaways: {
           strengths: data.summary?.strengths || ["Completed Interview Session"],
           opportunities: data.summary?.opportunities || ["Ensure all answers are detailed"],
         },
         trajectory: data.summary?.trajectory || [80, 82, 85, 88],
         bodyLanguageScore,
-        bodyLanguageFeedback
+        bodyLanguageFeedback,
+        cheatEvidence: cheatEvidenceRef.current || undefined,
+        cheatReason: cheatReasonRef.current || undefined,
+        violations: violationsListRef.current
       };
 
       onEndSession(finishedSession);
@@ -971,7 +1131,7 @@ function LiveView({ session, setSession, onEndSession, onAbort }: LiveViewProps)
         rounds: finalRounds,
         completed: true,
         durationSeconds: seconds,
-        overallScore: 82,
+        overallScore: cheatReasonRef.current ? 0 : 82,
         keyTakeaways: {
           strengths: ["Clear structure used during the architectural trade-offs questions.", "Maintained professional posture and solid active listening characteristics."],
           opportunities: ["Deepen discussion around automated test architectures and specific metrics.", "Utilize STAR methodology metrics on all communication scenarios."],
@@ -979,9 +1139,15 @@ function LiveView({ session, setSession, onEndSession, onAbort }: LiveViewProps)
         trajectory: [75, 82, 80, 88],
         bodyLanguageScore: 85,
         bodyLanguageFeedback: "Good eye contact, but try to remain more centered in the frame.",
+        cheatEvidence: cheatEvidenceRef.current || undefined,
+        cheatReason: cheatReasonRef.current || undefined,
+        violations: violationsListRef.current
       };
       onEndSession(finishedSession);
     } finally {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+      }
       setSubmittingAnswer(false);
       setIsFinishingSession(false);
     }
@@ -992,22 +1158,83 @@ function LiveView({ session, setSession, onEndSession, onAbort }: LiveViewProps)
     handleCompleteRef.current = handleCompleteInterview;
   });
 
-  const handleViolationRef = useRef<(reason: string) => void>();
+  const playBeep = () => {
+    try {
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const oscillator = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(800, audioCtx.currentTime); 
+      gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+      oscillator.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+      oscillator.start();
+      setTimeout(() => oscillator.stop(), 300); 
+    } catch(e) {
+      console.warn("Audio beep failed", e);
+    }
+  };
+
+  const handleViolationRef = useRef<(title: string, message: string) => void>();
   useEffect(() => {
-    handleViolationRef.current = (reason: string) => {
-      console.warn("Anti-cheat violation triggered: ", reason);
+    handleViolationRef.current = (title: string, message: string) => {
+      console.warn("Anti-cheat violation triggered: ", message);
       if (isFinishingSession || submittingAnswer || loadingQuestions) return;
 
-      setViolationCount(prev => {
-        const newCount = prev + 1;
-        if (newCount === 1) {
-          setShowCheatWarning(true);
-          setTimeout(() => setShowCheatWarning(false), 5000);
-        } else if (newCount >= 2) {
-          handleCompleteRef.current();
+      const now = Date.now();
+      if (now - lastViolationTimeRef.current < 6000) return; // 6 seconds cooldown
+      lastViolationTimeRef.current = now;
+
+      playBeep();
+
+      let capturedEvidence: string | undefined = undefined;
+      // Capture screenshot for the violation
+      if (videoRef.current) {
+        try {
+          const canvas = document.createElement("canvas");
+          canvas.width = videoRef.current.videoWidth;
+          canvas.height = videoRef.current.videoHeight;
+          const ctx = canvas.getContext("2d");
+          if (ctx) {
+            // Apply mirroring to fix flipped image
+            ctx.translate(canvas.width, 0);
+            ctx.scale(-1, 1);
+            ctx.drawImage(videoRef.current, 0, 0);
+            
+            capturedEvidence = canvas.toDataURL("image/jpeg", 0.7);
+            // also keep legacy for simple checks
+            if (!cheatEvidenceRef.current) {
+              cheatEvidenceRef.current = capturedEvidence;
+              cheatReasonRef.current = message;
+            }
+          }
+        } catch (e) {
+          console.warn("Screenshot capture failed", e);
         }
-        return newCount;
+      }
+
+      violationsListRef.current.push({
+        reason: message,
+        evidence: capturedEvidence,
+        timestamp: new Date().toLocaleTimeString()
       });
+
+      violationCountRef.current += 1;
+      const newCount = violationCountRef.current;
+
+      if (newCount === 1) {
+        setCheatWarningData({ title, message });
+        triggerWarningSpeech(`${title}. ${message}`);
+        setTimeout(() => setCheatWarningData(null), 5000);
+      } else if (newCount >= 2) {
+        setSubmittingAnswer(true); // lock inputs
+        setCheatWarningData({ title: "DISQUALIFIED: " + title, message });
+        triggerWarningSpeech(`Final strike. ${title}. ${message}. Terminating interview session.`);
+        // Give them 4 seconds to see the flashing screen and hear the audio before it unmounts
+        setTimeout(() => {
+          handleCompleteRef.current();
+        }, 4000);
+      }
     };
   });
 
@@ -1015,13 +1242,13 @@ function LiveView({ session, setSession, onEndSession, onAbort }: LiveViewProps)
   useEffect(() => {
     const onVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
-        handleViolationRef.current?.("Tab switched or minimized");
+        handleViolationRef.current?.("TAB SWITCH DETECTED", "Please remain on this tab.");
       }
     };
 
     const onFullscreenChange = () => {
       if (!document.fullscreenElement) {
-        handleViolationRef.current?.("Exited fullscreen mode");
+        handleViolationRef.current?.("FULLSCREEN EXITED", "Please remain in fullscreen mode.");
       }
     };
 
@@ -1043,24 +1270,38 @@ function LiveView({ session, setSession, onEndSession, onAbort }: LiveViewProps)
       if (!videoRef.current || !cameraStream) return;
       try {
         await tf.ready();
-        const model = await cocoSsd.load({ base: "lite_mobilenet_v2" });
+        if (!cachedCocoModel) {
+          cachedCocoModel = await cocoSsd.load({ base: "lite_mobilenet_v2" });
+        }
+        const model = cachedCocoModel;
         
+        let isDetecting = false;
         detectionInterval = setInterval(async () => {
-          if (!isActive || !videoRef.current || isFinishingSession) return;
+          if (!isActive || !videoRef.current || isFinishingSession || isDetecting) return;
           
           if (videoRef.current.readyState >= 2) {
-            const predictions = await model.detect(videoRef.current);
-            
-            const cellPhoneDetected = predictions.some(p => p.class === "cell phone" && p.score > 0.6);
-            const personCount = predictions.filter(p => p.class === "person" && p.score > 0.5).length;
-            
-            if (cellPhoneDetected) {
-              handleViolationRef.current?.("Mobile phone detected in frame");
-            } else if (personCount > 1) {
-              handleViolationRef.current?.("Multiple people detected in frame");
+            isDetecting = true;
+            try {
+              const predictions = await model.detect(videoRef.current);
+              
+              const phonePred = predictions.find(p => p.class === "cell phone" && p.score > 0.2);
+              const personPreds = predictions.filter(p => p.class === "person" && p.score > 0.70);
+              
+              // Console log for debugging the live threshold testing
+              if (predictions.length > 0) {
+                console.log("TFJS detections:", predictions.map(p => `${p.class} (${Math.round(p.score * 100)}%)`));
+              }
+              
+              if (phonePred) {
+                handleViolationRef.current?.("UNAUTHORIZED DEVICE", "Mobile phone detected in frame.");
+              } else if (personPreds.length > 1) {
+                handleViolationRef.current?.("MULTIPLE PEOPLE DETECTED", "Please ensure you are alone in the room.");
+              }
+            } finally {
+              isDetecting = false;
             }
           }
-        }, 1500);
+        }, 500);
       } catch (e) {
         console.warn("TFJS Object Detection error", e);
       }
@@ -1118,19 +1359,78 @@ function LiveView({ session, setSession, onEndSession, onAbort }: LiveViewProps)
 
   return (
     <div className="relative z-10 flex-1 flex flex-col h-screen min-h-screen">
-      {/* Anti-Cheat Warning Overlay */}
-      {showCheatWarning && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-red-950/90 backdrop-blur-md transition-all">
-          <div className="bg-red-900/40 border-2 border-red-500 p-8 rounded-3xl max-w-xl text-center shadow-[0_0_100px_rgba(239,68,68,0.4)] animate-pulse">
-            <AlertTriangle className="text-red-500 mx-auto mb-4" size={64} />
-            <h2 className="font-display text-3xl font-extrabold text-white mb-2 uppercase tracking-widest text-red-50">
-              WARNING
+      {/* Security Briefing Modal */}
+      {showSecurityBriefing && !cheatWarningData && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center backdrop-blur-md bg-black/80">
+          <div className="bg-black/90 p-8 rounded-3xl max-w-lg w-full text-center shadow-[0_0_80px_rgba(173,198,255,0.15)] border border-primary/30">
+            <Info className="text-primary mx-auto mb-4" size={64} />
+            <h2 className="font-display text-2xl md:text-3xl font-extrabold text-white mb-4 uppercase tracking-widest">
+              Security Protocols
             </h2>
-            <p className="text-red-200 text-lg leading-relaxed">
-              Please remain in fullscreen and do not switch tabs. 
-              <br/>
-              <strong>One more violation will automatically submit and terminate your interview session.</strong>
+            <div className="text-on-surface-variant text-sm md:text-base leading-relaxed space-y-4 text-left bg-white/5 p-6 rounded-2xl border border-white/10">
+              <p className="flex items-start gap-3">
+                <span className="text-red-400 mt-1">1.</span>
+                <span><strong>Stay in Fullscreen:</strong> Exiting fullscreen mode will trigger a strike.</span>
+              </p>
+              <p className="flex items-start gap-3">
+                <span className="text-red-400 mt-1">2.</span>
+                <span><strong>No Devices:</strong> AI Vision detects mobile phones. Using one will trigger a strike.</span>
+              </p>
+              <p className="flex items-start gap-3">
+                <span className="text-red-400 mt-1">3.</span>
+                <span><strong>No Assistance:</strong> Ensure you are alone in a quiet room. Multiple people in frame will trigger a strike.</span>
+              </p>
+            </div>
+            <p className="text-primary mt-6 mb-8 font-bold text-sm bg-primary/10 py-2 rounded-lg">
+              Two strikes will result in immediate disqualification.
             </p>
+            <button
+              onClick={() => {
+                setShowSecurityBriefing(false);
+                if (!document.fullscreenElement) {
+                  document.documentElement.requestFullscreen().catch(e => console.warn(e));
+                }
+              }}
+              className="w-full py-4 bg-primary text-black rounded-xl font-extrabold text-sm uppercase tracking-widest hover:bg-primary/90 transition-all shadow-lg active:scale-95"
+            >
+              I Understand & Agree
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Anti-Cheat Warning Overlay */}
+      {cheatWarningData && (
+        <div 
+          onClick={() => {
+            if (cheatWarningData.title.includes("FULLSCREEN EXITED") && !document.fullscreenElement) {
+              document.documentElement.requestFullscreen().catch(e => console.warn(e));
+            }
+          }}
+          className={`fixed inset-0 z-[100] flex items-center justify-center backdrop-blur-md transition-all ${
+            cheatWarningData.title.includes("UNAUTHORIZED DEVICE") ? "bg-red-800/90" : "bg-red-950/90"
+          } ${cheatWarningData.title.includes("FULLSCREEN EXITED") ? "cursor-pointer" : ""}`}
+        >
+          <div className={`bg-red-900/40 p-8 rounded-3xl max-w-xl text-center shadow-[0_0_100px_rgba(239,68,68,0.4)] ${
+            cheatWarningData.title.includes("UNAUTHORIZED DEVICE") ? "border-4 border-red-500 scale-110 animate-pulse" : "border-2 border-red-500 animate-pulse"
+          }`}>
+            <AlertTriangle className={`text-red-500 mx-auto mb-4 ${cheatWarningData.title.includes("UNAUTHORIZED DEVICE") ? "animate-bounce" : ""}`} size={80} />
+            <h2 className="font-display text-3xl md:text-4xl font-extrabold text-white mb-2 uppercase tracking-widest text-red-50">
+              {cheatWarningData.title}
+            </h2>
+            <p className="text-red-200 text-lg md:text-xl leading-relaxed mt-4">
+              {cheatWarningData.message}
+              <br/>
+              <br/>
+              <strong className="text-white text-xl bg-red-600/50 px-4 py-2 rounded-xl inline-block border border-red-500 shadow-xl">
+                One more violation will automatically submit and terminate your interview session.
+              </strong>
+            </p>
+            {cheatWarningData.title.includes("FULLSCREEN EXITED") && (
+              <p className="text-white font-bold mt-6 bg-red-600/50 py-2 px-4 rounded-xl inline-block border border-red-500">
+                Click anywhere to return to fullscreen
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -1587,8 +1887,52 @@ function DashboardView({ session, onNewSession, onViewHistory }: DashboardViewPr
 
       {/* Main Analysis content area */}
       <main className="flex-1 p-6 md:p-8 max-w-6xl mx-auto w-full space-y-12">
-        
-        {/* Dynamic overall dashboard Header */}
+        {session.cheatReason ? (
+          <div className="flex flex-col items-center justify-center text-center mt-12 max-w-2xl mx-auto min-h-[60vh]">
+            <AlertTriangle size={80} className="text-red-500 mb-6 animate-pulse" />
+            <h1 className="font-display text-4xl md:text-5xl font-extrabold text-red-500 tracking-tight mb-4 uppercase">
+              Disqualified
+            </h1>
+            <p className="text-lg text-red-200/80 mb-8 leading-relaxed">
+              This interview session was automatically terminated and scored a <span className="font-bold text-red-400">0</span> due to a violation of testing environment protocols. 
+              <br/><br/>
+              <span className="bg-red-950/50 px-4 py-2 rounded-lg border border-red-500/20 text-red-300 font-mono text-sm shadow-[0_0_15px_rgba(239,68,68,0.2)]">
+                Violation: {session.violations && session.violations.length > 1 ? "Multiple Security Violations" : session.cheatReason}
+              </span>
+            </p>
+            
+            {session.violations && session.violations.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full mt-4">
+                {session.violations.map((v, idx) => (
+                  <div key={idx} className="rounded-2xl overflow-hidden border-2 border-red-500/40 shadow-[0_0_40px_rgba(239,68,68,0.3)] bg-black w-full relative group">
+                    <div className="absolute top-4 left-4 bg-red-950/90 text-white font-mono text-[10px] uppercase font-bold px-3 py-2 rounded-lg shadow-lg flex flex-col items-start gap-1 border border-red-500/50 backdrop-blur-md z-10">
+                      <div className="flex items-center gap-2 text-red-400">
+                        <Camera size={12} />
+                        Strike {idx + 1} • {v.timestamp}
+                      </div>
+                      <span className="text-[11px] text-white/90 truncate max-w-[200px]" title={v.reason}>{v.reason}</span>
+                    </div>
+                    {v.evidence ? (
+                      <img src={v.evidence} alt={`Violation ${idx + 1}`} className="w-full h-auto object-cover opacity-80 group-hover:opacity-100 transition-opacity duration-500" />
+                    ) : (
+                      <div className="w-full h-48 flex items-center justify-center text-red-500/50">No Photo Captured</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : session.cheatEvidence && (
+              <div className="rounded-2xl overflow-hidden border-2 border-red-500/40 shadow-[0_0_40px_rgba(239,68,68,0.3)] bg-black w-full relative max-w-md mx-auto mt-4">
+                <div className="absolute top-4 left-4 bg-red-500 text-white font-mono text-[10px] uppercase font-bold px-3 py-1 rounded-full shadow-lg flex items-center gap-2">
+                   <Camera size={12} />
+                   Photographic Evidence
+                </div>
+                <img src={session.cheatEvidence} alt="Violation Proof" className="w-full h-auto object-cover" />
+              </div>
+            )}
+          </div>
+        ) : (
+          <>
+            {/* Dynamic overall dashboard Header */}
         <section className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 border-b border-white/10 pb-8">
           <div>
             <h1 className="font-display text-3xl md:text-4.5xl font-extrabold text-white tracking-tight glow-text mb-2">
@@ -1815,6 +2159,8 @@ function DashboardView({ session, onNewSession, onViewHistory }: DashboardViewPr
             </div>
           </div>
         </section>
+
+
 
         {/* Vision API Feedback Section */}
         {session.bodyLanguageFeedback && (
@@ -2050,6 +2396,8 @@ function DashboardView({ session, onNewSession, onViewHistory }: DashboardViewPr
           </div>
         </section>
 
+          </>
+        )}
       </main>
     </div>
   );
