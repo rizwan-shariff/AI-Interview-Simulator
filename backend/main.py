@@ -125,8 +125,10 @@ async def api_share_results(req: ShareResultsRequest):
         pdf_bytes = base64.b64decode(req.pdfBase64)
         msg.add_attachment(pdf_bytes, maintype='application', subtype='pdf', filename=f"{req.name}_Interview_Results.pdf")
         
-        # Send email using Gmail SMTP
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+        # Send email using Gmail SMTP (Port 587 TLS)
+        with smtplib.SMTP('smtp.gmail.com', 587) as smtp:
+            smtp.ehlo()
+            smtp.starttls()
             smtp.login(smtp_email, smtp_password)
             smtp.send_message(msg)
             

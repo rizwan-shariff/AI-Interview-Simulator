@@ -1869,13 +1869,13 @@ function DashboardView({ session, onNewSession, onViewHistory }: DashboardViewPr
     try {
       if (!dashboardRef.current) throw new Error("Dashboard not rendered");
       
-      const canvas = await html2canvas(dashboardRef.current, { scale: 2, useCORS: true, backgroundColor: "#050505" });
-      const imgData = canvas.toDataURL("image/png");
+      const canvas = await html2canvas(dashboardRef.current, { scale: 1, useCORS: true, backgroundColor: "#050505" });
+      const imgData = canvas.toDataURL("image/jpeg", 0.7);
       const pdf = new jsPDF("p", "mm", "a4");
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
       
-      pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, Math.min(pdfHeight, pdf.internal.pageSize.getHeight()));
+      pdf.addImage(imgData, "JPEG", 0, 0, pdfWidth, Math.min(pdfHeight, pdf.internal.pageSize.getHeight()));
       const pdfBase64 = pdf.output("datauristring").split(",")[1];
       
       setShareMessage({text: "Uploading and dispatching email...", type: "success"});
