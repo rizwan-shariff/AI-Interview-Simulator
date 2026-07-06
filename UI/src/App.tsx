@@ -33,6 +33,11 @@ import {
   Loader2,
   Trash2,
 } from "lucide-react";
+
+import * as tf from "@tensorflow/tfjs";
+import * as cocoSsd from "@tensorflow-models/coco-ssd";
+import "@tensorflow/tfjs-backend-webgl";
+
 import { InterviewConfig, Question, Evaluation, InterviewRound, Session } from "./types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "https://ai-interview-simulator-1-rslz.onrender.com";
@@ -987,11 +992,12 @@ function LiveView({ session, setSession, onEndSession, onAbort }: LiveViewProps)
     handleCompleteRef.current = handleCompleteInterview;
   });
 
-  // Anti-Cheat Monitors
+  const handleViolationRef = useRef<(reason: string) => void>();
   useEffect(() => {
-    if (isFinishingSession || submittingAnswer || loadingQuestions) return;
+    handleViolationRef.current = (reason: string) => {
+      console.warn("Anti-cheat violation triggered: ", reason);
+      if (isFinishingSession || submittingAnswer || loadingQuestions) return;
 
-    const handleViolation = (reason: string) => {
       setViolationCount(prev => {
         const newCount = prev + 1;
         if (newCount === 1) {
@@ -1003,16 +1009,19 @@ function LiveView({ session, setSession, onEndSession, onAbort }: LiveViewProps)
         return newCount;
       });
     };
+  });
 
+  // Anti-Cheat Monitors (Tab and Fullscreen)
+  useEffect(() => {
     const onVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
-        handleViolation("Tab switched or minimized");
+        handleViolationRef.current?.("Tab switched or minimized");
       }
     };
 
     const onFullscreenChange = () => {
       if (!document.fullscreenElement) {
-        handleViolation("Exited fullscreen mode");
+        handleViolationRef.current?.("Exited fullscreen mode");
       }
     };
 
@@ -1023,7 +1032,49 @@ function LiveView({ session, setSession, onEndSession, onAbort }: LiveViewProps)
       document.removeEventListener("visibilitychange", onVisibilityChange);
       document.removeEventListener("fullscreenchange", onFullscreenChange);
     };
-  }, [isFinishingSession, submittingAnswer, loadingQuestions]);
+  }, []);
+
+  // TensorFlow.js Object Detection Anti-Cheat
+  useEffect(() => {
+    let detectionInterval: NodeJS.Timeout;
+    let isActive = true;
+
+    const startDetection = async () => {
+      if (!videoRef.current || !cameraStream) return;
+      try {
+        await tf.ready();
+        const model = await cocoSsd.load({ base: "lite_mobilenet_v2" });
+        
+        detectionInterval = setInterval(async () => {
+          if (!isActive || !videoRef.current || isFinishingSession) return;
+          
+          if (videoRef.current.readyState >= 2) {
+            const predictions = await model.detect(videoRef.current);
+            
+            const cellPhoneDetected = predictions.some(p => p.class === "cell phone" && p.score > 0.6);
+            const personCount = predictions.filter(p => p.class === "person" && p.score > 0.5).length;
+            
+            if (cellPhoneDetected) {
+              handleViolationRef.current?.("Mobile phone detected in frame");
+            } else if (personCount > 1) {
+              handleViolationRef.current?.("Multiple people detected in frame");
+            }
+          }
+        }, 1500);
+      } catch (e) {
+        console.warn("TFJS Object Detection error", e);
+      }
+    };
+
+    if (cameraStream && !isFinishingSession) {
+      startDetection();
+    }
+
+    return () => {
+      isActive = false;
+      if (detectionInterval) clearInterval(detectionInterval);
+    };
+  }, [cameraStream, isFinishingSession]);
 
   const formatTime = (totalSeconds: number) => {
     const mins = Math.floor(totalSeconds / 60);
