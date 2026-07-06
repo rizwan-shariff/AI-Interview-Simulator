@@ -793,7 +793,7 @@ function LiveView({ session, setSession, onEndSession, onAbort }: LiveViewProps)
     }
 
     simulateSubtitleEffect(text);
-    const apiKey = import.meta.env.VITE_ELEVENLABS_API_KEY;
+    const apiKey = "sk_a63b0cd6b757f7dd01e56f60bb7b87dd81db01fbddd29c13";
 
     const playNativeFemaleVoice = (textToSpeak: string) => {
       if (!window.speechSynthesis) return;
@@ -870,7 +870,7 @@ function LiveView({ session, setSession, onEndSession, onAbort }: LiveViewProps)
     }
     
     const warningText = message + ". Warning: One more violation will automatically submit and terminate your interview session.";
-    const apiKey = import.meta.env.VITE_ELEVENLABS_API_KEY;
+    const apiKey = "sk_a63b0cd6b757f7dd01e56f60bb7b87dd81db01fbddd29c13";
 
     const playNativeFemaleWarning = (textToSpeak: string) => {
       if (!window.speechSynthesis) return;
