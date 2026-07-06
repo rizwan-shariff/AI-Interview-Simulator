@@ -44,7 +44,7 @@ import { InterviewConfig, Question, Evaluation, InterviewRound, Session } from "
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "https://ai-interview-simulator-1-rslz.onrender.com";
 
 import { jsPDF } from "jspdf";
-import html2canvas from "html2canvas";
+import html2canvas from "html2canvas-pro";
 
 // Preset Job Descriptions for quick loading
 const PRESET_JDS = [
