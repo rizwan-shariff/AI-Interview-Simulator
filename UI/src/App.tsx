@@ -202,6 +202,14 @@ function SetupView({ config, setConfig, onStart, historyCount, backendStatus, on
   };
 
   const handleInitialize = async () => {
+    try {
+      if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+      }
+    } catch (err) {
+      console.warn("Fullscreen request failed", err);
+    }
+
     setLoadingQuestions(true);
     setErrorMessage(null);
     try {
@@ -579,6 +587,10 @@ function LiveView({ session, setSession, onEndSession, onAbort }: LiveViewProps)
   const [questions, setQuestions] = useState<Question[]>([]);
   const [loadingQuestions, setLoadingQuestions] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  
+  // Anti-Cheat State
+  const [violationCount, setViolationCount] = useState(0);
+  const [showCheatWarning, setShowCheatWarning] = useState(false);
   
   // Timer State
   const [seconds, setSeconds] = useState(0);
@@ -970,6 +982,49 @@ function LiveView({ session, setSession, onEndSession, onAbort }: LiveViewProps)
     }
   };
 
+  const handleCompleteRef = useRef(handleCompleteInterview);
+  useEffect(() => {
+    handleCompleteRef.current = handleCompleteInterview;
+  });
+
+  // Anti-Cheat Monitors
+  useEffect(() => {
+    if (isFinishingSession || submittingAnswer || loadingQuestions) return;
+
+    const handleViolation = (reason: string) => {
+      setViolationCount(prev => {
+        const newCount = prev + 1;
+        if (newCount === 1) {
+          setShowCheatWarning(true);
+          setTimeout(() => setShowCheatWarning(false), 5000);
+        } else if (newCount >= 2) {
+          handleCompleteRef.current();
+        }
+        return newCount;
+      });
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        handleViolation("Tab switched or minimized");
+      }
+    };
+
+    const onFullscreenChange = () => {
+      if (!document.fullscreenElement) {
+        handleViolation("Exited fullscreen mode");
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      document.removeEventListener("fullscreenchange", onFullscreenChange);
+    };
+  }, [isFinishingSession, submittingAnswer, loadingQuestions]);
+
   const formatTime = (totalSeconds: number) => {
     const mins = Math.floor(totalSeconds / 60);
     const secs = totalSeconds % 60;
@@ -1012,6 +1067,23 @@ function LiveView({ session, setSession, onEndSession, onAbort }: LiveViewProps)
 
   return (
     <div className="relative z-10 flex-1 flex flex-col h-screen min-h-screen">
+      {/* Anti-Cheat Warning Overlay */}
+      {showCheatWarning && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-red-950/90 backdrop-blur-md transition-all">
+          <div className="bg-red-900/40 border-2 border-red-500 p-8 rounded-3xl max-w-xl text-center shadow-[0_0_100px_rgba(239,68,68,0.4)] animate-pulse">
+            <AlertTriangle className="text-red-500 mx-auto mb-4" size={64} />
+            <h2 className="font-display text-3xl font-extrabold text-white mb-2 uppercase tracking-widest text-red-50">
+              WARNING
+            </h2>
+            <p className="text-red-200 text-lg leading-relaxed">
+              Please remain in fullscreen and do not switch tabs. 
+              <br/>
+              <strong>One more violation will automatically submit and terminate your interview session.</strong>
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Config Sidebar Drawer */}
       <aside
         className={`fixed left-0 top-16 bottom-0 w-80 glass-panel backdrop-blur-md border-r border-white/10 z-40 transition-transform duration-300 flex flex-col ${
