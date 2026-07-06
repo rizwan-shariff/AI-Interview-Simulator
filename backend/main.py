@@ -111,6 +111,7 @@ async def api_share_results(req: ShareResultsRequest):
     smtp_password = os.getenv("SMTP_PASSWORD")
     
     if not smtp_email or not smtp_password:
+        print(f"Missing credentials! Email: '{smtp_email}', Password length: {len(smtp_password) if smtp_password else 0}")
         raise HTTPException(status_code=500, detail="SMTP credentials not configured in backend .env")
 
     try:
