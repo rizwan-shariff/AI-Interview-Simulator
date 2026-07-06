@@ -43,19 +43,34 @@ import { InterviewConfig, Question, Evaluation, InterviewRound, Session } from "
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "https://ai-interview-simulator-1-rslz.onrender.com";
 
+import { jsPDF } from "jspdf";
+import html2canvas from "html2canvas";
+
 // Preset Job Descriptions for quick loading
 const PRESET_JDS = [
   {
-    title: "Senior AI Engineer",
-    text: "We are seeking a Senior AI Engineer to join our core intelligence team. You will lead the architecture and optimization of high-performance LLM agent workflows, build low-latency RAG systems, and manage model safety. Experience with TypeScript/Node full-stack platforms, PyTorch, vector databases, and real-time audio/speech streaming APIs is highly valued.",
+    title: "Google: Software Engineer (L4)",
+    text: "Seeking a strong SWE to design scalable distributed systems using Go/C++ and optimize backend performance. Must have excellent algorithmic problem-solving skills and system design knowledge.",
   },
   {
-    title: "Full-Stack React Developer",
-    text: "Looking for an experienced React Engineer skilled in modern CSS, Vite, Node/Express, and Tailwind. Responsibilities include building elegant glassmorphic dashboard dashboards, fluid web animations using framer-motion, optimizing layout latency, and writing strict TypeScript across high-scale server/client proxy services.",
+    title: "Meta: Front-End Engineer",
+    text: "Looking for an expert React developer to build high-performance, dynamic UIs. Deep knowledge of JavaScript, state management, and web performance optimization required.",
   },
   {
-    title: "Lead Backend Developer",
-    text: "Looking for a Backend Engineering Lead to drive development of scalable microservices, relational PostgreSQL architectures, and fault-tolerant APIs. You will manage database connection pooling, optimize complex SQL schema migrations, and secure cross-platform data syncing workflows with zero system downtime.",
+    title: "Amazon: AWS Cloud Architect",
+    text: "Seeking a cloud expert to design highly available, scalable AWS infrastructures. Must have deep experience with EC2, Lambda, DynamoDB, and infrastructure-as-code practices.",
+  },
+  {
+    title: "Stripe: Backend API Engineer",
+    text: "Looking for a backend engineer with strong REST/GraphQL API design skills and a deep understanding of PostgreSQL and Redis. Security-first mindset is essential.",
+  },
+  {
+    title: "OpenAI: AI/ML Engineer",
+    text: "Seeking an ML engineer to optimize and deploy large language models. Strong Python, PyTorch experience, and understanding of transformer architectures and RAG systems required.",
+  },
+  {
+    title: "Apple: iOS Swift Developer",
+    text: "Seeking an experienced iOS engineer to build elegant, high-performance applications using Swift and SwiftUI. Deep understanding of memory management and UI/UX guidelines needed.",
   },
 ];
 
@@ -338,6 +353,46 @@ function SetupView({ config, setConfig, onStart, historyCount, backendStatus, on
               )}
 
               <div className="space-y-6">
+                {/* Candidate Info */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-on-surface-variant mb-2">
+                      Candidate Name
+                    </label>
+                    <input
+                      type="text"
+                      value={config.candidateName || ""}
+                      onChange={(e) => setConfig((prev) => ({ ...prev, candidateName: e.target.value }))}
+                      className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-sm text-white focus:border-primary outline-none transition-all"
+                      placeholder="e.g. John Doe"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-on-surface-variant mb-2">
+                      Candidate Email
+                    </label>
+                    <input
+                      type="email"
+                      value={config.candidateEmail || ""}
+                      onChange={(e) => setConfig((prev) => ({ ...prev, candidateEmail: e.target.value }))}
+                      className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-sm text-white focus:border-primary outline-none transition-all"
+                      placeholder="john@example.com"
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-on-surface-variant mb-2">
+                      Target Company (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={config.companyName || ""}
+                      onChange={(e) => setConfig((prev) => ({ ...prev, companyName: e.target.value }))}
+                      className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-sm text-white focus:border-primary outline-none transition-all"
+                      placeholder="e.g. Acme Corp..."
+                    />
+                  </div>
+                </div>
+
                 {/* Preset Fast Picker */}
                 <div>
                   <div className="flex justify-between items-center mb-2">
@@ -1798,6 +1853,57 @@ function DashboardView({ session, onNewSession, onViewHistory }: DashboardViewPr
 
   const calculatedOverallScore = Math.round((avgTechnical + avgCommunication + avgConfidence + bodyLanguageScore) / 4);
 
+  const [isSharing, setIsSharing] = useState(false);
+  const [shareMessage, setShareMessage] = useState<{text: string; type: "success" | "error"} | null>(null);
+  const dashboardRef = useRef<HTMLElement>(null);
+
+  const handleShareResults = async () => {
+    if (!session.config.candidateEmail) {
+      setShareMessage({text: "No email provided during setup. (Cannot share)", type: "error"});
+      setTimeout(() => setShareMessage(null), 4000);
+      return;
+    }
+    
+    setIsSharing(true);
+    setShareMessage({text: "Generating High-Res PDF...", type: "success"});
+    try {
+      if (!dashboardRef.current) throw new Error("Dashboard not rendered");
+      
+      const canvas = await html2canvas(dashboardRef.current, { scale: 2, useCORS: true, backgroundColor: "#050505" });
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF("p", "mm", "a4");
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+      
+      pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, Math.min(pdfHeight, pdf.internal.pageSize.getHeight()));
+      const pdfBase64 = pdf.output("datauristring").split(",")[1];
+      
+      setShareMessage({text: "Uploading and dispatching email...", type: "success"});
+      const res = await fetch(`${API_BASE_URL}/api/share-results`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: session.config.candidateEmail,
+          name: session.config.candidateName || "Candidate",
+          company: session.config.companyName || "Your Target Company",
+          pdfBase64: pdfBase64,
+          score: calculatedOverallScore
+        })
+      });
+      
+      if (!res.ok) throw new Error("Backend API failed");
+      
+      setShareMessage({text: "PDF Results emailed successfully!", type: "success"});
+      setTimeout(() => setShareMessage(null), 5000);
+    } catch (e) {
+      console.error(e);
+      setShareMessage({text: "Error generating or sending PDF.", type: "error"});
+      setTimeout(() => setShareMessage(null), 5000);
+    } finally {
+      setIsSharing(false);
+    }
+  };
+
   // Progress circle dashboard stroke offsets
   const getStrokeOffset = (score: number) => {
     // stroke-dasharray is 251.2 representing 100%
@@ -1886,7 +1992,7 @@ function DashboardView({ session, onNewSession, onViewHistory }: DashboardViewPr
       </nav>
 
       {/* Main Analysis content area */}
-      <main className="flex-1 p-6 md:p-8 max-w-6xl mx-auto w-full space-y-12">
+      <main ref={dashboardRef} className="flex-1 p-6 md:p-8 max-w-6xl mx-auto w-full space-y-12">
         {session.cheatReason ? (
           <div className="flex flex-col items-center justify-center text-center mt-12 max-w-2xl mx-auto min-h-[60vh]">
             <AlertTriangle size={80} className="text-red-500 mb-6 animate-pulse" />
@@ -1953,18 +2059,36 @@ function DashboardView({ session, onNewSession, onViewHistory }: DashboardViewPr
             </div>
           </div>
 
-          <div className="glass-panel rounded-2xl px-6 py-4 flex items-center gap-4 ambient-glow border border-white/10 shadow-xl">
-            <div className="text-right">
-              <div className="text-[10px] font-bold text-primary uppercase tracking-widest mb-1 font-mono">Overall Score</div>
-              <div className="font-display text-3xl font-extrabold text-white">
-                {calculatedOverallScore}
-                <span className="text-on-surface-variant font-normal text-lg">/100</span>
+          <div className="flex flex-col gap-4 items-end">
+            <div className="glass-panel rounded-2xl px-6 py-4 flex items-center gap-4 ambient-glow border border-white/10 shadow-xl">
+              <div className="text-right">
+                <div className="text-[10px] font-bold text-primary uppercase tracking-widest mb-1 font-mono">Overall Score</div>
+                <div className="font-display text-3xl font-extrabold text-white">
+                  {calculatedOverallScore}
+                  <span className="text-on-surface-variant font-normal text-lg">/100</span>
+                </div>
               </div>
+              <div className="h-10 w-[1px] bg-white/10 mx-1"></div>
+              <span className="material-symbols-outlined text-[#ffb595] text-3xl font-bold" style={{ fontVariationSettings: "'FILL' 1" }}>
+                trending_up
+              </span>
             </div>
-            <div className="h-10 w-[1px] bg-white/10 mx-1"></div>
-            <span className="material-symbols-outlined text-[#ffb595] text-3xl font-bold" style={{ fontVariationSettings: "'FILL' 1" }}>
-              trending_up
-            </span>
+
+            <div className="flex flex-col items-end gap-2">
+              <button
+                onClick={handleShareResults}
+                disabled={isSharing}
+                className="px-6 py-3 bg-white/10 hover:bg-primary/20 text-white font-bold rounded-xl transition-all border border-white/20 hover:border-primary shadow-lg flex items-center gap-2"
+              >
+                {isSharing ? <Loader2 size={18} className="animate-spin text-primary" /> : <FileText size={18} className="text-primary" />}
+                <span>{isSharing ? "Processing..." : "Share Results via Email"}</span>
+              </button>
+              {shareMessage && (
+                <span className={`text-xs font-bold ${shareMessage.type === "success" ? "text-emerald-400" : "text-red-400"}`}>
+                  {shareMessage.text}
+                </span>
+              )}
+            </div>
           </div>
         </section>
 

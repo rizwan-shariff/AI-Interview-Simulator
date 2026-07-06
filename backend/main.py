@@ -7,6 +7,9 @@ from dotenv import load_dotenv
 import json
 from io import BytesIO
 from PIL import Image
+import base64
+import smtplib
+from email.message import EmailMessage
 
 # Import existing logic
 from ai_services import generate_questions, evaluate_single_answer, generate_summary, evaluate_body_language
@@ -94,3 +97,40 @@ async def api_evaluate_body_language(images: List[UploadFile] = File(...)):
         
     evaluation = evaluate_body_language(pil_images, groq_api_key)
     return {"evaluation": evaluation}
+
+class ShareResultsRequest(BaseModel):
+    email: str
+    name: str
+    company: str
+    pdfBase64: str
+    score: int
+
+@app.post("/api/share-results")
+async def api_share_results(req: ShareResultsRequest):
+    smtp_email = os.getenv("SMTP_EMAIL")
+    smtp_password = os.getenv("SMTP_PASSWORD")
+    
+    if not smtp_email or not smtp_password:
+        raise HTTPException(status_code=500, detail="SMTP credentials not configured in backend .env")
+
+    try:
+        msg = EmailMessage()
+        msg['Subject'] = f"Your Interview Results - {req.company}"
+        msg['From'] = smtp_email
+        msg['To'] = req.email
+        
+        msg.set_content(f"Hi {req.name},\n\nThank you for completing your AI mock interview for {req.company}.\n\nYou scored {req.score}/100. Please find your detailed Performance Dashboard attached as a PDF.\n\nBest,\nAI Interview Simulator Team")
+        
+        # Decode and attach PDF
+        pdf_bytes = base64.b64decode(req.pdfBase64)
+        msg.add_attachment(pdf_bytes, maintype='application', subtype='pdf', filename=f"{req.name}_Interview_Results.pdf")
+        
+        # Send email using Gmail SMTP
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+            smtp.login(smtp_email, smtp_password)
+            smtp.send_message(msg)
+            
+        return {"message": "Email sent successfully"}
+    except Exception as e:
+        print(f"Email error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

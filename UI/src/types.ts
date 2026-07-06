@@ -7,6 +7,10 @@ export interface InterviewConfig {
   jobDescription: string;
   experienceLevel: 'Junior' | 'Mid' | 'Senior' | 'Lead';
   numQuestions: number;
+  candidateName?: string;
+  candidateEmail?: string;
+  companyName?: string;
+  roleName?: string;
 }
 
 export interface Question {
