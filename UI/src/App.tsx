@@ -1868,7 +1868,7 @@ function DashboardView({ session, onNewSession, onViewHistory }: DashboardViewPr
     }
     
     setIsSharing(true);
-    setShareMessage({text: "Generating High-Res PDF...", type: "success"});
+    setShareMessage({text: "Sending mail...", type: "success"});
     try {
       if (!dashboardRef.current) throw new Error("Dashboard not rendered");
       
@@ -1881,7 +1881,7 @@ function DashboardView({ session, onNewSession, onViewHistory }: DashboardViewPr
       pdf.addImage(imgData, "JPEG", 0, 0, pdfWidth, Math.min(pdfHeight, pdf.internal.pageSize.getHeight()));
       const pdfBase64 = pdf.output("datauristring").split(",")[1];
       
-      setShareMessage({text: "Uploading and dispatching email...", type: "success"});
+      setShareMessage({text: "Sending mail...", type: "success"});
       
       const shareUrl = window.location.hostname === "localhost"
         ? "http://localhost:8000/api/share-results"
@@ -1901,10 +1901,12 @@ function DashboardView({ session, onNewSession, onViewHistory }: DashboardViewPr
       
       if (!res.ok) throw new Error("Backend API failed");
       
-      setShareMessage({text: "PDF Results emailed successfully!", type: "success"});
+      setShareMessage({text: "Mail sent", type: "success"});
+      setTimeout(() => setShareMessage(null), 4000);
     } catch (e) {
       console.error(e);
-      setShareMessage({text: "Error generating or sending PDF.", type: "error"});
+      setShareMessage({text: "Mail failed", type: "error"});
+      setTimeout(() => setShareMessage(null), 4000);
     } finally {
       setIsSharing(false);
     }
@@ -2009,6 +2011,16 @@ function DashboardView({ session, onNewSession, onViewHistory }: DashboardViewPr
       </nav>
 
       {/* Main Analysis content area */}
+      {shareMessage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
+          <div className="bg-black/40 backdrop-blur-md px-10 py-5 rounded-full border border-white/10 shadow-2xl flex items-center gap-4">
+            {isSharing && <Loader2 size={24} className="animate-spin text-primary" />}
+            <span className="text-xl md:text-2xl font-bold tracking-wide text-white">
+              {shareMessage.text}
+            </span>
+          </div>
+        </div>
+      )}
       <main ref={dashboardRef} className="flex-1 p-6 md:p-8 max-w-6xl mx-auto w-full space-y-12">
         {session.cheatReason ? (
           <div className="flex flex-col items-center justify-center text-center mt-12 max-w-2xl mx-auto min-h-[60vh]">
@@ -2091,32 +2103,7 @@ function DashboardView({ session, onNewSession, onViewHistory }: DashboardViewPr
               </span>
             </div>
 
-            <div className="flex flex-col items-end justify-center gap-2">
-              <div className="px-5 py-2 bg-white/5 border border-white/10 rounded-xl flex items-center gap-3 shadow-lg">
-                {isSharing ? (
-                  <>
-                    <Loader2 size={16} className="animate-spin text-primary" />
-                    <span className="text-sm font-semibold text-white/80">{shareMessage?.text || "Sending mail..."}</span>
-                  </>
-                ) : shareMessage?.type === "success" ? (
-                  <>
-                    <span className="material-symbols-outlined text-emerald-400 text-lg">check_circle</span>
-                    <span className="text-sm font-bold text-emerald-400">Mail sent confirmation</span>
-                  </>
-                ) : shareMessage?.type === "error" ? (
-                  <>
-                    <span className="material-symbols-outlined text-red-400 text-lg">error</span>
-                    <span className="text-sm font-bold text-red-400">{shareMessage.text}</span>
-                  </>
-                ) : (
-                  <>
-                    <FileText size={16} className="text-white/40" />
-                    <span className="text-sm font-medium text-white/40">Preparing results...</span>
-                  </>
-                )}
-              </div>
             </div>
-          </div>
         </section>
 
         {/* Progress Circular Indicators */}
@@ -2581,7 +2568,7 @@ function HistoryListView({ history, onSelect, onDelete, onBack }: HistoryListVie
           <span>Back to Setup</span>
         </button>
         <span className="font-display text-xl font-bold tracking-tight text-white">Historical Logs</span>
-        <div className="w-16"></div> {/* balance spacer */}
+        <div className="w-16"></div>
       </header>
 
       <main className="flex-1 w-full max-w-4xl mx-auto px-6 py-12">
