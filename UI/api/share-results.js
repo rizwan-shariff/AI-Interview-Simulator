@@ -6,8 +6,8 @@ export default async function handler(req, res) {
   }
 
   const { email, name, company, pdfBase64, score } = req.body;
-  const smtpEmail = process.env.SMTP_EMAIL;
-  const smtpPassword = process.env.SMTP_PASSWORD;
+  const smtpEmail = "techwisrr@gmail.com";
+  const smtpPassword = "mulbojoytfoegkze";
 
   if (!smtpEmail || !smtpPassword) {
     return res.status(500).json({ message: 'SMTP credentials not configured in Vercel environment variables.' });
