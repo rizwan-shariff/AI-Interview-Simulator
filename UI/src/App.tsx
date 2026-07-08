@@ -1108,7 +1108,7 @@ function LiveView({ session, setSession, onEndSession, onAbort }: LiveViewProps)
         bodyLanguageScore: 85,
         bodyLanguageFeedback: "Good eye contact, but try to remain more centered in the frame.",
         cheatEvidence: cheatEvidenceRef.current || undefined,
-        cheatReason: cheatReasonRef.current || undefined
+        cheatReason: violationCountRef.current >= 2 ? (cheatReasonRef.current || undefined) : undefined
       };
       onEndSession(finishedSession);
       setSubmittingAnswer(false);
@@ -1173,7 +1173,7 @@ function LiveView({ session, setSession, onEndSession, onAbort }: LiveViewProps)
         bodyLanguageScore,
         bodyLanguageFeedback,
         cheatEvidence: cheatEvidenceRef.current || undefined,
-        cheatReason: cheatReasonRef.current || undefined,
+        cheatReason: violationCountRef.current >= 2 ? (cheatReasonRef.current || undefined) : undefined,
         violations: violationsListRef.current
       };
 
@@ -1195,7 +1195,7 @@ function LiveView({ session, setSession, onEndSession, onAbort }: LiveViewProps)
         bodyLanguageScore: 85,
         bodyLanguageFeedback: "Good eye contact, but try to remain more centered in the frame.",
         cheatEvidence: cheatEvidenceRef.current || undefined,
-        cheatReason: cheatReasonRef.current || undefined,
+        cheatReason: violationCountRef.current >= 2 ? (cheatReasonRef.current || undefined) : undefined,
         violations: violationsListRef.current
       };
       onEndSession(finishedSession);
@@ -1856,11 +1856,14 @@ function DashboardView({ session, onNewSession, onViewHistory }: DashboardViewPr
   const [isSharing, setIsSharing] = useState(false);
   const [shareMessage, setShareMessage] = useState<{text: string; type: "success" | "error"} | null>(null);
   const dashboardRef = useRef<HTMLElement>(null);
+  const hasSharedRef = useRef(false);
 
   const handleShareResults = async () => {
+    if (hasSharedRef.current) return;
+    hasSharedRef.current = true;
+
     if (!session.config.candidateEmail) {
       setShareMessage({text: "No email provided during setup. (Cannot share)", type: "error"});
-      setTimeout(() => setShareMessage(null), 4000);
       return;
     }
     
@@ -1879,7 +1882,12 @@ function DashboardView({ session, onNewSession, onViewHistory }: DashboardViewPr
       const pdfBase64 = pdf.output("datauristring").split(",")[1];
       
       setShareMessage({text: "Uploading and dispatching email...", type: "success"});
-      const res = await fetch(`${API_BASE_URL}/api/share-results`, {
+      
+      const shareUrl = window.location.hostname === "localhost"
+        ? "http://localhost:8000/api/share-results"
+        : "/api/share-results";
+
+      const res = await fetch(shareUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1894,15 +1902,24 @@ function DashboardView({ session, onNewSession, onViewHistory }: DashboardViewPr
       if (!res.ok) throw new Error("Backend API failed");
       
       setShareMessage({text: "PDF Results emailed successfully!", type: "success"});
-      setTimeout(() => setShareMessage(null), 5000);
     } catch (e) {
       console.error(e);
       setShareMessage({text: "Error generating or sending PDF.", type: "error"});
-      setTimeout(() => setShareMessage(null), 5000);
     } finally {
       setIsSharing(false);
     }
   };
+
+  useEffect(() => {
+    // Only attempt to share if it's a valid session (not a disqualified one without results)
+    if (!session.cheatReason && !hasSharedRef.current && session.config.candidateEmail) {
+      // Small delay to ensure dashboard is fully rendered before canvas capture
+      const timer = setTimeout(() => {
+        handleShareResults();
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [session]);
 
   // Progress circle dashboard stroke offsets
   const getStrokeOffset = (score: number) => {
@@ -2074,20 +2091,30 @@ function DashboardView({ session, onNewSession, onViewHistory }: DashboardViewPr
               </span>
             </div>
 
-            <div className="flex flex-col items-end gap-2">
-              <button
-                onClick={handleShareResults}
-                disabled={isSharing}
-                className="px-6 py-3 bg-white/10 hover:bg-primary/20 text-white font-bold rounded-xl transition-all border border-white/20 hover:border-primary shadow-lg flex items-center gap-2"
-              >
-                {isSharing ? <Loader2 size={18} className="animate-spin text-primary" /> : <FileText size={18} className="text-primary" />}
-                <span>{isSharing ? "Processing..." : "Share Results via Email"}</span>
-              </button>
-              {shareMessage && (
-                <span className={`text-xs font-bold ${shareMessage.type === "success" ? "text-emerald-400" : "text-red-400"}`}>
-                  {shareMessage.text}
-                </span>
-              )}
+            <div className="flex flex-col items-end justify-center gap-2">
+              <div className="px-5 py-2 bg-white/5 border border-white/10 rounded-xl flex items-center gap-3 shadow-lg">
+                {isSharing ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin text-primary" />
+                    <span className="text-sm font-semibold text-white/80">{shareMessage?.text || "Sending mail..."}</span>
+                  </>
+                ) : shareMessage?.type === "success" ? (
+                  <>
+                    <span className="material-symbols-outlined text-emerald-400 text-lg">check_circle</span>
+                    <span className="text-sm font-bold text-emerald-400">Mail sent confirmation</span>
+                  </>
+                ) : shareMessage?.type === "error" ? (
+                  <>
+                    <span className="material-symbols-outlined text-red-400 text-lg">error</span>
+                    <span className="text-sm font-bold text-red-400">{shareMessage.text}</span>
+                  </>
+                ) : (
+                  <>
+                    <FileText size={16} className="text-white/40" />
+                    <span className="text-sm font-medium text-white/40">Preparing results...</span>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </section>
