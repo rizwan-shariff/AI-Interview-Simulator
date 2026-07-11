@@ -89,8 +89,8 @@ export default function App() {
   });
   
   // Status check state
-  const [backendStatus, setBackendStatus] = useState<{ hasGeminiKey: boolean; mode: string }>({
-    hasGeminiKey: false,
+  const [backendStatus, setBackendStatus] = useState<{ hasGroqKey: boolean; mode: string }>({
+    hasGroqKey: false,
     mode: "demo_fallback",
   });
 
@@ -110,7 +110,7 @@ export default function App() {
       .then((res) => res.json())
       .then((data) => {
         setBackendStatus({
-          hasGeminiKey: data.hasGeminiKey,
+          hasGroqKey: data.hasGroqKey,
           mode: data.mode,
         });
       })
@@ -211,7 +211,7 @@ interface SetupViewProps {
   setConfig: React.Dispatch<React.SetStateAction<InterviewConfig>>;
   onStart: (config: InterviewConfig) => void;
   historyCount: number;
-  backendStatus: { hasGeminiKey: boolean; mode: string };
+  backendStatus: { hasGroqKey: boolean; mode: string };
   onNavigateHistory: () => void;
 }
 
@@ -285,8 +285,8 @@ function SetupView({ config, setConfig, onStart, historyCount, backendStatus, on
           )}
 
           <div className="flex items-center gap-2 bg-white/5 border border-white/10 px-3 py-1.5 rounded-full text-xs">
-            <span className={`w-2 h-2 rounded-full ${backendStatus.hasGeminiKey ? "bg-emerald-500 animate-pulse" : "bg-yellow-500"}`}></span>
-            <span className="opacity-80">{backendStatus.hasGeminiKey ? "Live Gemini Active" : "Local Demo Fallback"}</span>
+            <span className={`w-2 h-2 rounded-full ${backendStatus.hasGroqKey ? "bg-emerald-500 animate-pulse" : "bg-yellow-500"}`}></span>
+            <span className="opacity-80">{backendStatus.hasGroqKey ? "Live Groq Active" : "Local Demo Fallback"}</span>
           </div>
         </div>
       </header>

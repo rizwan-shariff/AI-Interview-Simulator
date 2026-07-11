@@ -51,7 +51,7 @@ def read_root():
 @app.get("/api/status")
 def api_status():
     has_groq = os.getenv("GROQ_API_KEY") is not None
-    return {"hasGeminiKey": has_groq, "mode": "production"}
+    return {"hasGroqKey": has_groq, "mode": "production"}
 
 @app.post("/api/generate-questions")
 async def api_generate_questions(req: GenerateQuestionsRequest):
